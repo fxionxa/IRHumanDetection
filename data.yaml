@@ -1,0 +1,7 @@
+path: # your path here
+
+train: images/train
+val: images/val
+
+names:
+  0: person
