@@ -1,0 +1,8 @@
+name: Infrared Human AI Edge Detection
+description: IR day/night camera with YOLOX object detection, live annotated stream, and smooth keyboard pan/tilt control.
+ports: []
+bricks:
+- arduino:web_ui: {}
+- arduino:video_object_detection:
+    model: yolox-object-detection
+icon: 🌙
