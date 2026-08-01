@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Infrared Human AI Edge Detection</title>
+    <link rel="stylesheet" type="text/css" href="style.css" />
+  </head>
+  <body>
+    <header class="header">
+      <h1>Infrared Human <span class="accent">AI</span> Edge Detection</h1>
+      <div id="connection" class="pill pill-offline">Connecting…</div>
+    </header>
+
+    <main class="layout">
+      <!-- ---------------------------------------------------- video feed -->
+      <section class="panel video-panel">
+        <div id="videoFeedContainer" class="video-frame">
+          <div id="videoPlaceholder" class="video-placeholder">
+            <div class="spinner"></div>
+            <p>Waiting for camera and model runner…</p>
+            <small>First start can take ~30 s while the model loads.</small>
+          </div>
+          <iframe
+            id="videoStream"
+            title="Annotated video stream"
+            frameborder="0"
+            style="display: none"></iframe>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------------ controls -->
+      <aside class="side">
+        <section class="panel">
+          <h2>Pan / Tilt</h2>
+          <p class="hint">
+            Hold <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or the arrow keys —
+            or press and hold the buttons. Release to stop.
+          </p>
+
+          <div class="dpad">
+            <button class="dpad-btn up"     data-pan="0"  data-tilt="1"  aria-label="Tilt up">▲</button>
+            <button class="dpad-btn left"   data-pan="-1" data-tilt="0"  aria-label="Pan left">◀</button>
+            <button class="dpad-btn center" id="centerBtn" aria-label="Recenter">⌖</button>
+            <button class="dpad-btn right"  data-pan="1"  data-tilt="0"  aria-label="Pan right">▶</button>
+            <button class="dpad-btn down"   data-pan="0"  data-tilt="-1" aria-label="Tilt down">▼</button>
+          </div>
+
+          <div class="readout">
+            <div><span class="readout-label">Pan</span><span id="panValue">—</span></div>
+            <div><span class="readout-label">Tilt</span><span id="tiltValue">—</span></div>
+          </div>
+
+          <label class="slider-row" for="speedSlider">
+            <span>Speed</span>
+            <input type="range" id="speedSlider" min="0.1" max="1" step="0.05" value="1" />
+            <output id="speedValue">100%</output>
+          </label>
+        </section>
+
+        <section class="panel">
+          <h2>Detection</h2>
+          <label class="slider-row" for="confidenceSlider">
+            <span>Confidence</span>
+            <input type="range" id="confidenceSlider" min="0.05" max="0.95" step="0.05" value="0.45" />
+            <output id="confidenceValue">0.45</output>
+          </label>
+
+          <div id="counts" class="counts">
+            <p class="empty">Nothing detected yet.</p>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Recent</h2>
+          <ul id="recentList" class="recent">
+            <li class="empty">No detections yet.</li>
+          </ul>
+        </section>
+      </aside>
+    </main>
+
+    <script src="libs/socket.io.min.js"></script>
+    <script src="libs/arduino.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
