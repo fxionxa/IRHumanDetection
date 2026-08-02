@@ -1,58 +1,122 @@
-# IRHumanDetection
+# Infrared Human Detection on Arduino UNO Q
 
-# Current Instructions
-1. Clone github:
-    git clone https://github.com/fxionxa/IRHumanDetection.git  
+A night-capable human detector that runs entirely on the edge. A USB IR camera
+feeds a YOLO object-detection model running on an **Arduino UNO Q**; the
+annotated video is served to a browser, and the operator can pan and tilt the
+camera smoothly from the keyboard or an on-screen D-pad.
 
-2. Download LLVIP dataset from kaggle:
-    https://www.kaggle.com/datasets/monishshrivastava1/llvip-dataset?resource=download
+The repo contains two things:
 
-3. Delete Visible Folder
+1. **Training** — scripts to convert the [LLVIP](https://bupt-ai-cz.github.io/LLVIP/)
+   infrared pedestrian dataset from VOC to YOLO format and train a YOLO11n
+   detector on it.
+2. **Deployment** — a complete Arduino App Lab application (Python + `.ino`
+   sketch + web UI) that runs the detector on-device and drives two servos.
 
-4. Rename infrared to images
-
-5. Rename train to val
-
-6. Run voc_to_yolo.ipynb, make sure to initialize ROOT
-
-7. Check sizes match for both images and labels:
-    dir LLVIP\infrared\train | Measure-Object 
-    dir LLVIP\labels\train | Measure-Object 
-    dir LLVIP\infrared\test | Measure-Object 
-    dir LLVIP\labels\test | Measure-Object
-
-8. Update path in data.yaml to where LLVIP and data.yaml are visible
-
-9. Install Ultralytics and check YOLO version:
-    pip install ultralytics 
-    check yolo --version  
-
-10. Check if you have NVIDIA GPU
-    nvidia-smi
-
-11. Train 1 epoch to install and test yolo11n:
-    yolo detect train model=yolo11n.pt data=data.yaml epochs=1 imgsz=640 batch=16 device=0
-
-12. Train with 100 epochs:
-    yolo detect train model=yolo11n.pt data=data.yaml epochs=100 imgsz=640 batch=16 device=0
-
-13. Run predictions to test best model:
-    yolo detect predict model=runs/detect/train/weights/best.pt source=LLVIP/images/val
-
-14. Export model:
-    yolo export model=runs/detect/train/weights/best.pt format=onnx
-
-# 🌙 Infrared Human AI Edge Detection
-
-IR day/night USB camera → YOLOX object detection with bounding boxes and labels →
-live annotated stream in the browser, with smooth keyboard/button pan-tilt control
-of the camera.
-
-Built for **Arduino UNO Q** (`arduino,imola`), App Lab CLI **0.12.1** / bricks **0.11.0**.
+Target platform: **Arduino UNO Q** (`arduino,imola`), App Lab CLI **0.12.1**,
+bricks **0.11.0**.
 
 ---
 
-## How it works
+## Repo layout
+
+| Path                        | Purpose                                              |
+| --------------------------- | ---------------------------------------------------- |
+| `voc_to_yolo.ipynb`         | Converts LLVIP VOC XML annotations to YOLO `.txt`    |
+| `data.yaml`                 | Dataset config passed to the Ultralytics trainer     |
+| `app.yaml`                  | Brick manifest — model id and web UI                 |
+| `python/main.py`            | Wires detection → UI and UI → servos                 |
+| `python/pantilt.py`         | Velocity command sender + heartbeat thread           |
+| `sketch/sketch.ino`         | 50 Hz velocity integrator, ramp, limits, watchdog    |
+| `sketch/sketch.yaml`        | Build profile (`Servo 1.3.0`)                        |
+| `assets/index.html`         | Page layout — video iframe, D-pad, readouts          |
+| `assets/app.js`             | Key/button state, axis vector, detection rendering   |
+| `assets/style.css`          | Dark theme                                           |
+
+---
+
+## Part 1 — Training the IR model
+
+### Requirements
+
+- Python 3.9+
+- An NVIDIA GPU (verify with `nvidia-smi`); CPU training is possible but slow
+- `pip install ultralytics`
+
+### Prepare the dataset
+
+1. Clone this repo:
+
+   ```bash
+   git clone https://github.com/fxionxa/IRHumanDetection.git
+   cd IRHumanDetection
+   ```
+
+2. Download the LLVIP dataset from
+   [Kaggle](https://www.kaggle.com/datasets/monishshrivastava1/llvip-dataset).
+
+3. Delete the `Visible/` folder — this project trains on infrared only.
+
+4. Rename `infrared/` to `images/`.
+
+5. Rename `images/test/` to `images/val/`, so the splits match what Ultralytics
+   expects. The final layout should be:
+
+   ```
+   LLVIP/
+     images/
+       train/
+       val/
+     labels/          # created in the next step
+       train/
+       val/
+   ```
+
+6. Open `voc_to_yolo.ipynb`, set `ROOT` to your `LLVIP` directory, and run it.
+   This writes YOLO-format label files into `LLVIP/labels/`.
+
+7. Confirm every image has a label — the counts must match pairwise:
+
+   ```powershell
+   dir LLVIP\images\train | Measure-Object
+   dir LLVIP\labels\train | Measure-Object
+   dir LLVIP\images\val   | Measure-Object
+   dir LLVIP\labels\val   | Measure-Object
+   ```
+
+8. Edit `path` in `data.yaml` so it points at the directory containing `LLVIP`.
+
+### Train
+
+Smoke-test with a single epoch first — this also downloads the `yolo11n.pt`
+weights:
+
+```bash
+yolo detect train model=yolo11n.pt data=data.yaml epochs=1 imgsz=640 batch=16 device=0
+```
+
+Then run the real thing:
+
+```bash
+yolo detect train model=yolo11n.pt data=data.yaml epochs=100 imgsz=640 batch=16 device=0
+```
+
+Reduce `batch` if you run out of VRAM.
+
+### Evaluate and export
+
+```bash
+yolo detect predict model=runs/detect/train/weights/best.pt source=LLVIP/images/val
+yolo export  model=runs/detect/train/weights/best.pt format=onnx
+```
+
+The exported model is what you deploy in Part 2.
+
+---
+
+## Part 2 — Running it on the UNO Q
+
+### How it works
 
 ```
 USB IR camera ──► video_object_detection brick ──► annotated MJPEG on :4912/embed
@@ -71,8 +135,7 @@ USB IR camera ──► video_object_detection brick ──► annotated MJPEG o
 
 **The bounding boxes are drawn by the model runner, not by this app.** The runner
 serves its own annotated stream on port **4912**; the page embeds it at `/embed`
-and renders the surrounding UI on port **7000**. That is the same arrangement the
-`Copy of Person classifier on camera` project uses.
+and renders the surrounding UI on port **7000**.
 
 ### Why motion is smooth
 
@@ -98,7 +161,7 @@ down. Diagonals work (W+D pans and tilts together).
 
 ---
 
-## Wiring and power
+### Wiring and power
 
 > ⚠️ **Two rails, one ground.** 40 kg-cm servos stall at several amps. Never
 > power them from the UNO Q's 5 V pin, and never route servo current through a
@@ -133,7 +196,7 @@ RGB LEDs are active-low, but nothing here drives them.)
 
 ---
 
-## Running it
+### Running it
 
 ```bash
 arduino-app-cli app start ~/ArduinoApps/infrared-human-ai-edge-detection
@@ -142,6 +205,9 @@ arduino-app-cli app logs  ~/ArduinoApps/infrared-human-ai-edge-detection --follo
 
 Then open `http://<board-ip>:7000`. First start takes ~30 s while the model
 container comes up; the video panel shows a spinner until then.
+
+Controls: `W` / `A` / `S` / `D` or the on-screen D-pad. The speed slider scales
+the axis vector.
 
 Stop with:
 
@@ -153,6 +219,38 @@ arduino-app-cli app stop ~/ArduinoApps/infrared-human-ai-edge-detection
 
 ---
 
+### Deploying your trained model
+
+The app ships with `yolox-object-detection` (YOLOX-nano, COCO) so it runs out of
+the box. Swapping in the IR model from Part 1 is a two-line change — nothing in
+the detection handling depends on the model:
+
+1. `app.yaml` — change the model id:
+
+   ```yaml
+   bricks:
+     - arduino:video_object_detection:
+         model: <your-model-id>
+   ```
+
+2. `python/main.py` — update `CLASSES_OF_INTEREST` and `PRIORITY_CLASSES` to the
+   labels your model emits (for the LLVIP model, just `person`).
+
+Then clear the build cache and restart:
+
+```bash
+arduino-app-cli app clean-cache user:infrared-human-ai-edge-detection --force
+arduino-app-cli app restart ~/ArduinoApps/infrared-human-ai-edge-detection
+```
+
+List the built-in models with `arduino-app-cli model list`.
+
+> **Disk space:** the root partition is ~9.8 G and typically ~75 % full. Do **not**
+> `pip install` PyTorch or similar on the board — the brick's model runner already
+> provides inference. Check with `df -h /` before adding dependencies.
+
+---
+
 ## Testing each part independently
 
 Do these in order; each isolates one layer, so a failure tells you exactly where
@@ -161,7 +259,7 @@ the problem is.
 ### 1. Camera alone (no model, no servos)
 
 ```bash
-ls -l /dev/video*                 # expect video0 (and video1 on some cameras)
+ls -l /dev/video*                            # expect video0 (and video1 on some cameras)
 v4l2-ctl --list-formats-ext -d /dev/video0   # if v4l-utils is installed
 ```
 
@@ -183,8 +281,8 @@ the problem is the iframe/port, not the model.
 
 ### 3. Servos alone (no camera, no model)
 
-With this app running, drive the servos over the REST endpoints — no browser,
-no keyboard:
+With this app running, drive the servos over the REST endpoints — no browser, no
+keyboard:
 
 ```bash
 curl http://localhost:7000/api/pantilt/state    # {"pan":90.0,"tilt":90.0,...}
@@ -198,9 +296,9 @@ Watch the MCU's own log while you do it:
 arduino-app-cli monitor      # expect "pan/tilt ready - centered at 90,90"
 ```
 
-If `state` returns an `error`, the Bridge isn't reaching the MCU — check that
-the sketch built (see below) and that `Bridge.provide_safe` didn't log an error
-in `arduino-app-cli monitor`.
+If `state` returns an `error`, the Bridge isn't reaching the MCU — check that the
+sketch built (see below) and that `Bridge.provide_safe` didn't log an error in
+`arduino-app-cli monitor`.
 
 ### 4. Sketch compiles (without starting the app)
 
@@ -238,65 +336,4 @@ If the servos buzz or jitter at the extremes, narrow `SERVO_MIN_US`/`SERVO_MAX_U
 toward `544`/`2400` — the Zephyr Servo backend is software PWM on a 4 µs tick and
 does not clamp writes, so these constants are the only guard.
 
-The speed slider in the UI scales the axis vector on the Python side, so you can
-find a comfortable rate without recompiling.
-
 ---
-
-## Swapping in a custom IR-trained model
-
-This is deliberately a two-line change — nothing in the detection handling
-depends on the model:
-
-1. `app.yaml` — change the model id:
-
-```yaml
-bricks:
-  - arduino:video_object_detection:
-model: <your-model-id> # e.g. an Edge Impulse .eim
-```
-
-2. `python/main.py` — update `CLASSES_OF_INTEREST` and `PRIORITY_CLASSES` to the
-   labels your model emits.
-
-Then clear the build cache and restart:
-
-```bash
-arduino-app-cli app clean-cache user:infrared-human-ai-edge-detection --force
-arduino-app-cli app restart ~/ArduinoApps/infrared-human-ai-edge-detection
-```
-
-Current model is `yolox-object-detection` (YOLOX-nano, COCO). Available built-in
-models: `arduino-app-cli model list`.
-
-> **Disk space:** the root partition is ~9.8 G and currently ~75 % full. Do **not**
-> `pip install` PyTorch or similar — the brick's model runner already provides
-> inference. Check with `df -h /` before adding dependencies.
-
----
-
-## Why pan/tilt is an in-app module, not a Custom Brick
-
-The servo control is genuinely two halves: `python/pantilt.py` and
-`sketch/sketch.ino`. A Custom Brick can package the Python half, but **not** the
-`.ino` — the sketch would still have to be copied into every app that used it.
-Packaging it as a brick would therefore split one tightly-coupled unit across two
-places, add compose/manifest ceremony, and still not deliver copy-one-thing
-reuse. `pantilt.py` is already self-contained (its only coupling to the rest of
-the app is the four `pt_*` Bridge names), so lifting it into a brick later is a
-straight file move if that ever pays off.
-
----
-
-## Files
-
-| Path                 | Purpose                                            |
-| -------------------- | -------------------------------------------------- |
-| `app.yaml`           | Brick manifest — model id and web UI               |
-| `python/main.py`     | Wires detection → UI and UI → servos               |
-| `python/pantilt.py`  | Velocity command sender + heartbeat thread         |
-| `sketch/sketch.ino`  | 50 Hz velocity integrator, ramp, limits, watchdog  |
-| `sketch/sketch.yaml` | Build profile (`Servo 1.3.0`)                      |
-| `assets/index.html`  | Page layout — video iframe, D-pad, readouts        |
-| `assets/app.js`      | Key/button state, axis vector, detection rendering |
-| `assets/style.css`   | Dark theme                                         |
